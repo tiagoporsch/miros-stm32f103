@@ -32,7 +32,6 @@ void consumer_main(void) {
 	for (;;) {
 		semaphore_wait(&semaphore_occupied);
 		int value = queue.data[queue.head];
-		std_printf("consumed %d\n", value);
 		if (++queue.head== QUEUE_SIZE)
 			queue.head = 0;
 		semaphore_signal(&semaphore_available);
@@ -42,8 +41,9 @@ void consumer_main(void) {
 }
 
 void main(void) {
-	os_init();
+	rcc_init();
 	usart_init(USART1, 72e6 / 115200);
+	os_init();
 
 	semaphore_init(&semaphore_occupied, QUEUE_SIZE, 0);
 	semaphore_init(&semaphore_available, QUEUE_SIZE, QUEUE_SIZE);

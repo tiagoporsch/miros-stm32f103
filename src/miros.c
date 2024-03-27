@@ -4,6 +4,7 @@
 
 #include "std.h"
 #include "stm32.h"
+#include "tracer.h"
 
 #define LOG2(x) (32 - __builtin_clz(x))
 #define DIMENSION(x) (sizeof(x) / sizeof(x[0]))
@@ -17,19 +18,24 @@ static uint32_t os_delayed; // bitmask of threads that are delayed
 static uint32_t idle_stack[40];
 static thread_t idle_thread;
 static void idle_main(void) {
+	tracer_enter(0);
 	for (;;);
+	tracer_exit(0);
 }
 
 static void os_sched(void) {
+	tracer_enter(1);
 	thread_t* next = os_threads[LOG2(os_ready)];
 	if (next != os_current) {
 		os_next = next;
 		SCB->icsr |= SCB_ICSR_PENDSVSET;
 		asm volatile ("dsb");
 	}
+	tracer_exit(1);
 }
 
 static void os_tick(void) {
+	tracer_enter(2);
 	uint32_t workingSet = os_delayed;
 	while (workingSet != 0) {
 		thread_t* thread = os_threads[LOG2(workingSet)];
@@ -41,14 +47,18 @@ static void os_tick(void) {
 		}
 		workingSet &= ~bit;
 	}
+	tracer_exit(2);
 }
 
 void os_init(void) {
+	tracer_enter(3);
 	nvic_set_priority(IRQN_PENDSV, 0xFF);
 	thread_init(&idle_thread, 0, &idle_main, idle_stack, sizeof(idle_stack));
+	tracer_exit(3);
 }
 
 void os_run(void) {
+	tracer_enter(4);
 	rcc_init();
 	systick_init(72e6 / OS_ONE_SECOND);
 	nvic_set_priority(IRQN_SYSTICK, 0x00);
@@ -56,18 +66,22 @@ void os_run(void) {
 	os_sched();
 	__enable_irq();
 	OS_ERROR();
+	tracer_exit(4);
 }
 
 void os_yield(void) {
+	tracer_enter(5);
 	__disable_irq();
 	uint32_t bit = (1 << (os_current->priority - 1));
 	os_ready &= ~bit;
 	os_sched();
 	os_ready |= bit;
 	__enable_irq();
+	tracer_exit(5);
 }
 
 void os_delay(uint32_t ticks) {
+	tracer_enter(6);
 	__disable_irq();
 	OS_ASSERT(os_current != os_threads[0]);
 	os_current->timeout = ticks;
@@ -76,9 +90,11 @@ void os_delay(uint32_t ticks) {
 	os_delayed |= bit;
 	os_sched();
 	__enable_irq();
+	tracer_exit(6);
 }
 
 void os_exit(void) {
+	tracer_enter(7);
 	__disable_irq();
 	OS_ASSERT(os_current != os_threads[0]);
 	uint32_t bit = (1 << (os_current->priority - 1));
@@ -86,12 +102,14 @@ void os_exit(void) {
 	os_threads[os_current->priority] = (thread_t*) 0;
 	os_sched();
 	__enable_irq();
+	tracer_exit(7);
 }
 
 /*
  * Thread
  */
 void thread_init(thread_t* thread, uint8_t priority, void (*handler)(), void* stack, uint32_t stackSize) {
+	tracer_enter(8);
 	// Priority must be in range and the priority level must be unused
 	OS_ASSERT(thread);
 	OS_ASSERT(handler);
@@ -133,18 +151,22 @@ void thread_init(thread_t* thread, uint8_t priority, void (*handler)(), void* st
 	os_threads[thread->priority] = thread;
 	if (thread->priority > 0)
 		os_ready |= (1 << (thread->priority - 1));
+	tracer_exit(8);
 }
 
 /*
  * Semaphore
  */
 void semaphore_init(semaphore_t* semaphore, uint32_t max, uint32_t value) {
+	tracer_enter(9);
 	OS_ASSERT(semaphore);
 	semaphore->max = max;
 	semaphore->value = value;
+	tracer_exit(9);
 }
 
 void semaphore_wait(semaphore_t* semaphore) {
+	tracer_enter(10);
 	OS_ASSERT(semaphore);
 	__disable_irq();
 	while (semaphore->value == 0) {
@@ -153,14 +175,17 @@ void semaphore_wait(semaphore_t* semaphore) {
 	}
 	semaphore->value--;
 	__enable_irq();
+	tracer_exit(10);
 }
 
 void semaphore_signal(semaphore_t* semaphore) {
+	tracer_enter(11);
 	OS_ASSERT(semaphore);
 	__disable_irq();
 	if (semaphore->value < semaphore->max)
 		semaphore->value++;
 	__enable_irq();
+	tracer_exit(11);
 }
 
 /*
@@ -168,17 +193,21 @@ void semaphore_signal(semaphore_t* semaphore) {
  */
 __attribute__((weak))
 void assert_handler(const char* module, int line) {
+	tracer_enter(12);
 	rcc_init();
 	usart_init(USART1, 115200);
 	std_printf("ASSERT AT %s:%d FAILED. HALTING\n", module, line);
 	for (;;);
+	tracer_exit(12);
 }
 
 void systick_handler(void) {
+	tracer_enter(13);
 	os_tick();
 	__disable_irq();
 	os_sched();
 	__enable_irq();
+	tracer_exit(13);
 }
 
 __attribute__ ((naked))
